@@ -24,6 +24,9 @@ class Reason(str, Enum):
     QUOTE_NOT_FOUND = "quote_not_found"
     VALUE_NOT_IN_SOURCE = "value_not_in_source"
     INVALID_VALUE = "invalid_value"
+    # The quote was located, but a semantic (NLI) check found that the source says
+    # something different, e.g. the claim inserted or dropped a negation.
+    CONTRADICTED = "contradicted"
 
 
 @dataclass(frozen=True)

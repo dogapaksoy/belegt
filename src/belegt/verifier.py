@@ -10,7 +10,7 @@ from belegt.types import Claim, Reason, Span, ValueType, Verification
 from belegt.values import value_in_text, value_in_text_approx
 
 
-def _expand_to_words(document: str, span: Span) -> str:
+def expand_to_words(document: str, span: Span) -> str:
     """Fuzzy alignments can clip the first/last characters; widen to whole tokens so a
     value at the edge ("…bis 15.03.2026.") is not cut off."""
     s, e = span.start, span.end
@@ -46,7 +46,7 @@ class Verifier:
         if self.check_values and claim.type is not ValueType.TEXT:
             # Check the value against the *document* span, never against the model's quote:
             # the quote may itself be the hallucination.
-            source, _ = normalize(_expand_to_words(document, span), casefold=False)
+            source, _ = normalize(expand_to_words(document, span), casefold=False)
             found = value_in_text(claim.type, claim.value, source)
             if found is None:
                 return Verification(claim, False, Reason.INVALID_VALUE, span)

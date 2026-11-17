@@ -46,7 +46,23 @@ def _cmd_synth(args: argparse.Namespace) -> int:
 
 def _cmd_bench(args: argparse.Namespace) -> int:
     records = list(load_jsonl(args.data)) if args.data else generate(args.n, args.seed)
-    results = bench.run(records, noise_levels=args.noise, seed=args.seed)
+    verifiers: list = bench.default_verifiers()
+    if args.nli:
+        from belegt.nli import NLIModel, NLIVerifier
+
+        model = NLIModel(args.nli)
+        verifiers += [
+            NLIVerifier(bench.Verifier(bench.FuzzyMatcher(90)), model=model, threshold=0.5),
+            NLIVerifier(
+                bench.Verifier(bench.FuzzyMatcher(90)),
+                model=model,
+                mode="entailment",
+                threshold=0.5,
+            ),  # fmt: skip
+            NLIVerifier(bench.Verifier(bench.FuzzyMatcher(90)), model=model, threshold=0.9),
+            NLIVerifier(model=model),  # recommended: fuzzy@85 + contradiction@0.9
+        ]
+    results = bench.run(records, verifiers, noise_levels=args.noise, seed=args.seed)
     table = bench.to_markdown(results)
     print(table)
     if args.out:
@@ -78,6 +94,12 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--seed", type=int, default=0)
     b.add_argument("--noise", type=float, nargs="+", default=[0.0, 0.03, 0.06, 0.1])
     b.add_argument("-o", "--out", help="also write the markdown table here")
+    b.add_argument(
+        "--nli",
+        nargs="?",
+        const="MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+        help="also benchmark NLI verifiers (optionally give a Hugging Face model id)",
+    )
     b.set_defaults(func=_cmd_bench)
 
     args = p.parse_args(argv)

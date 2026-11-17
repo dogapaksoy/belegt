@@ -35,13 +35,15 @@ claim ─► normalize (layout, hyphenation, quotes, ligatures, case)  ─► lo
        ─► map span back to original offsets  ─► typed value check on the *document* span
                                                  date / amount / id, OCR digit repair,
                                                  optional one-dropped-character tolerance
-       ─► ok | value_approx | value_not_in_source | quote_not_found | invalid_value
+       ─► optional NLI check for free-text claims: does the source sentence contradict the claim?
+       ─► ok | value_approx | value_not_in_source | quote_not_found | contradicted | invalid_value
 ```
 
 Design decisions worth noting:
 
 * **The value is checked against the document span, never against the model's quote** — the quote itself may be the hallucination.
 * **OCR tolerance is asymmetric.** A *dropped* digit (`29.05.2026` → `2.05.2026`) is accepted but reported as `value_approx` so a UI can ask for a quick manual check. A *substituted* digit (`28.05.` vs `29.05.`) is never tolerated: that is precisely what a hallucinated value looks like. Amounts are compared part-wise so a dropped digit cannot turn `4.335,27` into `43.352,70`.
+* **Strings for form, a model for meaning.** Dates, amounts and IDs are checked exactly; a neural model is used only where exact checks are impossible — free-text claims such as obligations — and only after the quote has been located, so it judges one sentence pair instead of searching the whole document.
 * Every result carries character offsets into the original text for highlighting the evidence.
 
 ## Usage
@@ -55,10 +57,19 @@ for r in verify(ocr_text, claims):
     print(r.claim.field, r.supported, r.reason.value, r.span)
 ```
 
+Semantic checking of free-text claims (adds PyTorch + a ~1 GB multilingual NLI model):
+
+```python
+from belegt.nli import NLIVerifier
+
+verifier = NLIVerifier()          # fuzzy@85 + value checks + mDeBERTa NLI, contradiction ≥ 0.9
+results = verifier.verify_all(ocr_text, claims)
+```
+
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev]"            # or ".[dev,nli]" for the NLI verifier
 belegt synth -n 200 -o data.jsonl --show 0.05   # generate benchmark, print a degraded letter
-belegt bench --data data.jsonl                   # compare methods across noise levels
+belegt bench --data data.jsonl [--nli]          # compare methods across noise levels
 ```
 
 ## Benchmark
@@ -69,22 +80,34 @@ belegt bench --data data.jsonl                   # compare methods across noise 
 |---|---|---|---|---|---|
 | 0.00 | `exact` | 0.741 | 56.9 % | 0.48 | 1.00 |
 | 0.00 | `fuzzy@90` (quote only) | 0.733 | 0.0 % | 0.00 | 0.88 |
-| 0.00 | `fuzzy@90+value~` | **0.982** | 0.0 % | 1.00 | 0.88 |
+| 0.00 | `fuzzy@90+value~` | 0.982 | 0.0 % | 1.00 | 0.88 |
+| 0.00 | `fuzzy@85+value~+nli@0.9` | **1.000** | 0.0 % | 1.00 | **1.00** |
 | 0.03 | `normalized+value` | 0.748 | 81.6 % | 1.00 | 1.00 |
 | 0.03 | `fuzzy@90+value` (strict) | 0.946 | 9.8 % | 1.00 | 0.89 |
-| 0.03 | `fuzzy@90+value~` | **0.978** | 1.7 % | 1.00 | 0.89 |
+| 0.03 | `fuzzy@90+value~` | 0.978 | 1.7 % | 1.00 | 0.89 |
+| 0.03 | `fuzzy@90+value~+nli@0.5` | 0.987 | 3.2 % | 1.00 | 1.00 |
+| 0.03 | `fuzzy@85+value~+nli@0.9` | **0.992** | 1.7 % | 1.00 | **0.99** |
+| 0.06 | `fuzzy@90+value~` | 0.957 | 7.6 % | 0.96 | 0.94 |
+| 0.06 | `fuzzy@85+value~+nli@0.9` | **0.974** | 5.0 % | 0.96 | **0.99** |
 | 0.10 | `fuzzy@90+value~` | 0.883 | 31.0 % | 0.98 | 0.99 |
-| 0.10 | `fuzzy@85+value~` | **0.934** | 12.6 % | 0.98 | 0.90 |
+| 0.10 | `fuzzy@85+value~` | 0.934 | 12.6 % | 0.98 | 0.90 |
+| 0.10 | `fuzzy@85+value~+nli@0.9` | **0.943** | 13.4 % | 0.98 | **0.99** |
 
-Findings so far:
+`value~` = value check with OCR tolerance; `nli@t` = [mDeBERTa-v3 multilingual NLI](https://huggingface.co/MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7), reject if P(contradiction) ≥ t, applied to free-text claims only. Latency on CPU: <1 ms per claim for string methods, ~110 ms (p95) when the NLI model runs.
+
+Findings:
 
 1. **Value checking is the single biggest gain** (F1 0.73 → 0.98 on clean text). Quote matching alone misses every right-quote-wrong-value hallucination.
 2. **OCR tolerance cuts false alarms ~6×** at moderate noise (9.8 % → 1.7 %) without losing recall.
-3. **String similarity cannot detect contradictions.** A quote with an inserted negation scores >90 against the original, so 11–25 % of contradictions pass. Lowering the threshold for noisy scans makes this worse — a real trade-off, and the motivation for the semantic (NLI) verifier on the roadmap.
+3. **String similarity cannot detect contradictions.** A quote with an inserted negation scores >90 against the original, so 11–25 % of contradictions pass, and lowering the threshold for noisy scans makes it worse.
+4. **NLI closes that gap — if calibrated.** At the default 0.5 threshold the model catches every contradiction but mistakes OCR-damaged correct sentences for contradictions (false flags 1.7 % → 3.2 %). Real contradictions score ≥ 0.98, so a 0.9 threshold keeps 99–100 % recall and removes most of those false alarms.
+5. **The two methods complement each other.** With NLI guarding meaning, the string matcher can be loosened (90 → 85) to tolerate more OCR noise. The combination has the best F1 at every noise level.
+6. **Heavy noise remains open.** At a 10 % character error rate, 13 % of correct claims are still flagged — mostly values destroyed beyond a single dropped character. This is where real OCR (instead of simulated noise) and confidence-aware thresholds come next.
 
 ## Roadmap
 
-- [ ] NLI / cross-encoder verifier for `text` claims (contradiction detection), German models
+- [x] NLI verifier for `text` claims (contradiction detection), threshold calibration
+- [ ] Compare German-specific NLI models (e.g. GBERT-based) and a distilled model for mobile latency
 - [ ] LLM-as-judge baseline, with cost and latency
 - [ ] End-to-end eval: real LLM extractors (open-weight vs. API) on the benchmark → hallucination rates per model
 - [ ] Realistic OCR: render letters to images, run Tesseract / docTR instead of simulated noise

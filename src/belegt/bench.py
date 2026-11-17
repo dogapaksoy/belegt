@@ -14,11 +14,11 @@ import zlib
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from belegt.matchers import ExactMatcher, FuzzyMatcher, NormalizedMatcher
 from belegt.noise import degrade
-from belegt.types import Claim
+from belegt.types import Claim, Verification
 from belegt.verifier import Verifier
 
 
@@ -76,9 +76,15 @@ class Result:
         )
 
 
+class SupportsVerify(Protocol):
+    name: str
+
+    def verify(self, document: str, claim: Claim) -> Verification: ...
+
+
 def run(
     records: Sequence[dict[str, Any]],
-    verifiers: Iterable[Verifier] | None = None,
+    verifiers: Iterable[SupportsVerify] | None = None,
     noise_levels: Sequence[float] = (0.0, 0.03, 0.06, 0.1),
     seed: int = 0,
 ) -> list[Result]:
