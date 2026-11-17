@@ -1,0 +1,10 @@
+[
+  {"field": "steuernummer", "type": "id", "value": "34/815/08150",
+   "quote": "Steuernummer: 34/815/08150"},
+  {"field": "betrag", "type": "amount", "value": "1234.56",
+   "quote": "Bitte überweisen Sie den Nachzahlungsbetrag von 1.234,56 € bis spätestens 15. März 2026 auf das unten angegebene Konto."},
+  {"field": "frist", "type": "date", "value": "2026-03-02",
+   "quote": "Bitte überweisen Sie den Nachzahlungsbetrag von 1.234,56 € bis spätestens 15. März 2026 auf das unten angegebene Konto."},
+  {"field": "einspruch", "type": "text", "value": "Einspruch innerhalb eines Monats möglich",
+   "quote": "Gegen diesen Bescheid können Sie innerhalb eines Monats Einspruch einlegen."}
+]

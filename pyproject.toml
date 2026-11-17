@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "belegt"
+version = "0.1.0"
+description = "Verify that every fact an LLM extracts from a document is grounded in the source text — robust to OCR noise."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Doğa Paksoy" }]
+keywords = ["llm", "hallucination", "grounding", "evaluation", "ocr", "document-ai", "german"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Linguistic",
+    "Natural Language :: German",
+]
+dependencies = ["rapidfuzz>=3.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+belegt = "belegt.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/belegt"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
