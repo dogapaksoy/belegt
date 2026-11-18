@@ -21,6 +21,7 @@ dependencies = ["rapidfuzz>=3.0"]
 
 [project.optional-dependencies]
 nli = ["torch>=2.1", "transformers>=4.40", "sentencepiece", "protobuf"]
+llm = ["torch>=2.1", "transformers>=4.51", "accelerate"]
 dev = ["pytest>=8", "ruff>=0.5"]
 
 [project.scripts]

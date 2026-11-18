@@ -70,6 +70,21 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_llm_eval(args: argparse.Namespace) -> int:
+    from belegt.extract_eval import run_generation, score, to_markdown
+
+    scores = []
+    for name in args.models:
+        cache = Path(args.cache_dir) / (name.replace("/", "__") + ".jsonl")
+        gens = run_generation(name, args.n, args.noise, args.seed, cache)
+        scores.append(score(name, gens, args.noise, args.seed))
+    table = to_markdown(scores)
+    print(table)
+    if args.out:
+        Path(args.out).write_text(table + "\n", encoding="utf-8")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="belegt", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -101,6 +116,15 @@ def main(argv: list[str] | None = None) -> int:
         help="also benchmark NLI verifiers (optionally give a Hugging Face model id)",
     )
     b.set_defaults(func=_cmd_bench)
+
+    e = sub.add_parser("llm-eval", help="let local LLMs extract facts, then verify them")
+    e.add_argument("models", nargs="+", help="Hugging Face model ids")
+    e.add_argument("-n", type=int, default=50, help="number of letters")
+    e.add_argument("--noise", type=float, default=0.03)
+    e.add_argument("--seed", type=int, default=0)
+    e.add_argument("--cache-dir", default="results/llm", help="raw generations (JSONL)")
+    e.add_argument("-o", "--out", help="also write the markdown table here")
+    e.set_defaults(func=_cmd_llm_eval)
 
     args = p.parse_args(argv)
     return int(args.func(args))
