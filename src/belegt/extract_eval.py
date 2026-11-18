@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rapidfuzz import fuzz, process
+
 from belegt.data.synth import generate
 from belegt.matchers import FuzzyMatcher
 from belegt.noise import degrade
@@ -94,6 +96,26 @@ def parse_output(text: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue
     return out
+
+
+def _canon(name: str) -> str:
+    name = name.strip().casefold()
+    for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        name = name.replace(a, b)
+    return name
+
+
+def match_field(name: str, wanted: Sequence[str]) -> tuple[str | None, bool]:
+    """Map a model's field key to a requested field. Returns (field, exact).
+
+    Small models misspell keys ("fist" for "frist", "gebühr" for "gebuehr"); that is a
+    schema-adherence problem, not an extraction failure, so it is matched leniently
+    and counted separately."""
+    canon = _canon(name)
+    if canon in wanted:
+        return canon, canon == name.strip()
+    best = process.extractOne(canon, wanted, scorer=fuzz.ratio, score_cutoff=75)
+    return (best[0], False) if best else (None, False)
 
 
 def value_correct(kind: ValueType, predicted: str, gold: str) -> bool:
@@ -190,6 +212,7 @@ class Score:
     # correct value, but the cited quote does not contain it (or does not exist):
     # the flag is deserved, since the evidence shown to the user would be wrong
     correct_bad_citation: int = 0
+    misnamed_keys: int = 0  # answers whose field key had to be matched leniently
     verbatim_quotes: int = 0
     quotes: int = 0
     seconds: list[float] = field(default_factory=list)
@@ -217,11 +240,14 @@ def score(
         rec = records[g["id"]]
         doc = degrade(rec["document"], noise, seed=seed ^ zlib.crc32(rec["id"].encode()))
         s.seconds.append(g["seconds"])
-        predicted = {}
+        wanted = [c["field"] for c in rec["claims"]
+                  if c["corruption"] is None and c["type"] != "text"]  # fmt: skip
+        predicted: dict[str, dict[str, Any]] = {}
         for p in parse_output(g["output"]):
-            name = str(p.get("field", "")).strip().lower()
+            name, exact = match_field(str(p.get("field", "")), wanted)
             if name and name not in predicted and p.get("value") not in (None, ""):
                 predicted[name] = p
+                s.misnamed_keys += not exact
         for c in rec["claims"]:
             if c["corruption"] is not None or c["type"] == "text":
                 continue
@@ -257,8 +283,8 @@ def to_markdown(scores: Sequence[Score]) -> str:
     rows = [
         "| model | fields | correct | model errors | OCR-destroyed | missing | "
         "errors flagged | correct flagged (of which wrong citation) | **unflagged errors** "
-        "| verbatim quotes | s / letter |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| verbatim quotes | misnamed keys | s / letter |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for s in scores:
         sec = sorted(s.seconds)[len(s.seconds) // 2] if s.seconds else 0
@@ -270,6 +296,7 @@ def to_markdown(scores: Sequence[Score]) -> str:
             f"| {s.pct(s.correct_flagged, s.correct)} "
             f"({s.correct_bad_citation}/{s.correct_flagged}) "
             f"| **{s.pct(s.unflagged_errors, s.fields)}** "
-            f"| {s.pct(s.verbatim_quotes, s.quotes)} | {sec:.0f} |"
+            f"| {s.pct(s.verbatim_quotes, s.quotes)} | {s.pct(s.misnamed_keys, s.quotes)} "
+            f"| {sec:.0f} |"
         )
     return "\n".join(rows)

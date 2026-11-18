@@ -61,3 +61,13 @@ def test_hallucinated_values_are_counted_and_flagged():
     records = generate(10)
     s = score("fake", _fake_generations(records, 0.0, corrupt_field="frist"), noise=0.0, seed=0)
     assert s.wrong == 10 and s.wrong_flagged == 10 and s.unflagged_errors == 0
+
+
+def test_misspelled_field_keys_are_matched_leniently():
+    from belegt.extract_eval import match_field
+
+    wanted = ["frist", "gebuehr", "termin"]
+    assert match_field("frist", wanted) == ("frist", True)
+    assert match_field("Gebühr", wanted) == ("gebuehr", False)
+    assert match_field("fist", wanted) == ("frist", False)
+    assert match_field("iban", wanted) == (None, False)
